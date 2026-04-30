@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Galactic Ronin: Mjolnir & Nuke Edition</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Teko:wght@600&display=swap');
+
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            background-color: #000; overflow: hidden;
+            font-family: 'Teko', sans-serif; user-select: none; cursor: none;
+        }
+
+        canvas { display: block; width: 100%; height: 100%; }
+
+        #ui-layer { position: absolute; inset: 0; z-index: 10; pointer-events: none; padding: 20px; display: flex; flex-direction: column; justify-content: space-between; }
+        
+        .top-hud { display: flex; justify-content: space-between; align-items: flex-start; }
+        
+        .hud-box {
+            background: rgba(0, 0, 10, 0.8); border: 2px solid #0ff;
+            padding: 10px 20px; border-radius: 8px; color: #fff;
+            font-size: 1.8rem; text-shadow: 0 0 10px #0ff; box-shadow: 0 0 15px rgba(0,255,255,0.2);
+        }
+
+        #wave-display {
+            font-size: 3rem; color: #ff0055; text-shadow: 0 0 20px #ff0055;
+            text-align: center; position: absolute; left: 50%; transform: translateX(-50%); top: 20px;
+        }
+
+        #inventory { display: flex; gap: 15px; justify-content: center; margin-bottom: 10px; transition: opacity 0.3s; pointer-events: auto; }
+        .slot {
+            width: 70px; height: 70px; background: rgba(0, 0, 0, 0.7);
+            border: 2px solid #555; border-radius: 8px; position: relative;
+            display: flex; align-items: center; justify-content: center;
+            flex-direction: column; color: #fff; font-size: 1rem; overflow: hidden;
+            cursor: pointer; transition: all 0.1s;
+        }
+        .slot:hover { transform: scale(1.05); }
+        .slot.active { border-color: #0ff; box-shadow: 0 0 15px #0ff; }
+        .slot .key { position: absolute; top: 2px; left: 5px; color: #ffaa00; font-size: 1.2rem; text-shadow: 1px 1px 0 #000;}
+        .slot .icon { font-size: 1.8rem; }
+        .cooldown-overlay { position: absolute; bottom: 0; left: 0; width: 100%; height: 0%; background: rgba(255, 0, 0, 0.5); transition: height 0.1s; pointer-events: none; }
+
+        #nuke-alert { position: absolute; top: 100px; left: 50%; transform: translateX(-50%); color: #ff0000; font-size: 4rem; text-shadow: 0 0 20px #ff0000; display: none; }
+        #vehicle-alert { position: absolute; top: 60%; left: 50%; transform: translateX(-50%); color: #fff; font-size: 2rem; text-shadow: 0 0 10px #0f0; display: none; }
+        
+        #gulag-warning {
+            position: absolute; top: 30%; left: 50%; transform: translateX(-50%);
+            color: #ccff00; font-size: 5rem; text-shadow: 0 0 30px #00ff00; display: none; text-align: center;
+        }
+        
+        #controls-hint { position: absolute; bottom: 100px; right: 20px; color: #aaa; text-align: right; font-size: 1.2rem; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; border-right: 4px solid #0ff; }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="ui-layer">
+        <div class="top-hud">
+            <div class="hud-box">HP: <span id="hp-val">100</span> | SCORE: <span id="score-val">0</span></div>
+            <div id="wave-display">WAVE <span id="wave-val">1</span><br><span style="font-size:1.5rem; color:#fff;" id="zombie-count">Zombies: 10</span></div>
+        </div>
+
+        <div id="nuke-alert">NUKE IN: <span id="nuke-timer">60</span>s</div>
+        <div id="vehicle-alert">[Q] TO ENTER VEHICLE</div>
+        <div id="gulag-warning">THE GULAG<br><span style="font-size: 2rem; color: #fff;">Survive the Sewer Boss to return! (Knife Only)</span></div>
+        
+        <div id="controls-hint">
+            <b>SPACE</b> - Drop Bomb (Jet)<br>
+            <b>RIGHT CLICK</b> - Mjolnir (Thor's Hammer)
+        </div>
+
+        <div id="inventory">
+            <div class="slot active" id="slot-combat" onclick="if(window.player && player.mode==='build') player.toggleMode()"><div class="key">M1</div><div class="icon">🔫</div><div>GUN</div></div>
+            <div class="slot" id="slot-build" onclick="if(window.player && player.mode==='combat') player.toggleMode()"><div class="key">G</div><div class="icon">🧱</div><div>BUILD</div></div>
+            <div class="slot" id="slot-rocket" onclick="if(window.player) player.useRocket()"><div class="key">T</div><div class="icon">🚀</div><div>5s</div><div class="cooldown-overlay" id="cd-rocket"></div></div>
+            <div class="slot" id="slot-airstrike" onclick="if(window.game) game.callAirstrike()"><div class="key">X</div><div class="icon">🛩️</div><div>20s</div><div class="cooldown-overlay" id="cd-airstrike"></div></div>
+            <div class="slot" id="slot-heal" onclick="if(window.player) player.useHeal()"><div class="key">H</div><div class="icon">🧪</div><div>10s</div><div class="cooldown-overlay" id="cd-heal"></div></div>
+            <div class="slot" id="slot-katana" onclick="if(window.player) player.toggleRonin()"><div class="key">E</div><div class="icon">🌸</div><div>RONIN</div></div>
+            <div class="slot" id="slot-nuke" onclick="if(window.game) game.startNuke()"><div class="key">K</div><div class="icon">☢️</div><div>60s</div><div class="cooldown-overlay" id="cd-nuke"></div></div>
+        </div>
+    </div>
+
+    <script>
+        // =========================================================
+        // 1. INITIALISIERUNG & GLOBALS
+        // =========================================================
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        let W = window.innerWidth, H = window.innerHeight;
+        window.addEventListener('resize', () => { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; });
+        window.dispatchEvent(new Event('resize'));
+        window.addEventListener('contextmenu', e => e.preventDefault());
+
+        const TS = 60; 
+        const MAP_COLS = 50; const MAP_ROWS = 50;
+        const MAP_W = MAP_COLS * TS; const MAP_H = MAP_ROWS * TS;
+        
+        const keys = {};
+        const mouse = { x: W/2, y: H/2, worldX: 0, worldY: 0, down: false, rightDown: false };
+        let score = 0; let screenShake = 0; let screenFlash = { alpha: 0, color: '#fff' };
+        let nukeFlashAlpha = 0;
+
+        let bullets = []; let particles = []; let sakuraLeaves = []; let sakuraTrees = [];
+        let airstrikes = []; let vehicles = []; let zombies = []; let hammers = [];
+
+        let overworldGrid = Array.from({length: MAP_ROWS}, () => Array(MAP_COLS).fill(0));
+        let overworldWallHP = Array.from({length: MAP_ROWS}, () => Array(MAP_COLS).fill(0));
+        let gulagGrid = Array.from({length: MAP_ROWS}, () => Array(MAP_COLS).fill(0));
+        
+        let grid = overworldGrid;
+        let wallHP = overworldWallHP;
+
+        // =========================================================
+        // 2. HELPER FUNKTIONEN
+        // =========================================================
+        function generateSciFiCity() {
+            // Runway (Top Right)
+            for(let r=2; r<=14; r++) {
+                for(let c=32; c<=48; c++) { overworldGrid[r][c] = 4; } 
+            }
+
+            // Buildings
+            for(let i=0; i<40; i++) {
+                let w = Math.floor(Math.random() * 3) + 2, h = Math.floor(Math.random() * 3) + 2;
+                let sX = Math.floor(Math.random() * (MAP_COLS - w)), sY = Math.floor(Math.random() * (MAP_ROWS - h));
+                
+                let canBuild = true;
+                for(let r=sY; r<sY+h; r++) for(let c=sX; c<sX+w; c++) if(overworldGrid[r][c] === 4) canBuild = false;
+                if(canBuild) {
+                    for(let r=sY; r<sY+h; r++) for(let c=sX; c<sX+w; c++) overworldGrid[r][c] = 1; 
+                }
+            }
+            
+            // Crates
+            for(let i=0; i<60; i++) {
+                let c = Math.floor(Math.random() * MAP_COLS), r = Math.floor(Math.random() * MAP_ROWS);
+                if(overworldGrid[r][c] === 0) { overworldGrid[r][c] = 3; overworldWallHP[r][c] = 20; } 
+            }
+            
+            // Clear spawn area
+            for(let r=22; r<=28; r++) for(let c=22; c<=28; c++) { overworldGrid[r][c] = 0; overworldWallHP[r][c] = 0; }
+
+            // Gulag Walls
+            for(let c=0; c<MAP_COLS; c++) { gulagGrid[0][c] = 5; gulagGrid[MAP_ROWS-1][c] = 5; } 
+            for(let r=0; r<MAP_ROWS; r++) { gulagGrid[r][0] = 5; gulagGrid[r][MAP_COLS-1] = 5; }
+        }
+
+        function checkWallCollisionObj(px, py, radius) {
+            let left = Math.floor((px - radius) / TS), right = Math.floor((px + radius) / TS);
+            let top = Math.floor((py - radius) / TS), bottom = Math.floor((py + radius) / TS);
+            for (let r = top; r <= bottom; r++) {
+                for (let c = left; c <= right; c++) {
+                    if (r < 0 || r >= MAP_ROWS || c < 0 || c >= MAP_COLS) continue; 
+                    if (grid[r] && grid[r][c] !== 0 && grid[r][c] !== 4 && grid[r][c] !== 6) { 
+                        let tX = px; if (px < c*TS) tX = c*TS; else if (px > c*TS+TS) tX = c*TS+TS;
+                        let tY = py; if (py < r*TS) tY = r*TS; else if (py > r*TS+TS) tY = r*TS+TS;
+                        if (Math.hypot(px - tX, py - tY) <= radius) return { r, c, val: grid[r][c] };
+                    }
+                }
+            }
+            return null;
+        }
+        function checkWallCollision(px, py, radius) { return checkWallCollisionObj(px, py, radius) !== null; }
+
+        function placeWall() {
+            let c = Math.floor(mouse.worldX / TS), r = Math.floor(mouse.worldY / TS);
+            if (c >= 0 && c < MAP_COLS && r >= 0 && r < MAP_ROWS) {
+                let inP = Math.hypot(player.x - (c*TS + TS/2), player.y - (r*TS + TS/2)) < player.radius + TS/2;
+                let inV = vehicles.some(v => Math.hypot(v.x - (c*TS + TS/2), v.y - (r*TS + TS/2)) < v.radius + TS/2);
+                if ((grid[r][c] === 0 || grid[r][c] === 6) && !inP && !inV) { grid[r][c] = 2; wallHP[r][c] = 50; } 
+            }
+        }
+
+        function editWall() {
+            let c = Math.floor(mouse.worldX / TS), r = Math.floor(mouse.worldY / TS);
+            if (grid[r] && grid[r][c] === 2) { grid[r][c] = 0; wallHP[r][c] = 0; }
+        }
+
+        function hitWall(r, c, attacker, damage = 5) {
+            if(attacker.attackCD === undefined || attacker.attackCD <= 0) {
+                if(grid[r][c] === 1 || grid[r][c] === 4 || grid[r][c] === 5 || grid[r][c] === 6) return; 
+                wallHP[r][c] -= damage;
+                if(attacker.attackCD !== undefined) attacker.attackCD = 30;
+                for(let i=0; i<5; i++) particles.push(new Particle(c*TS+TS/2, r*TS+TS/2, grid[r][c]===3?'#ffa500':'#00ccff', 2, 0.1)); 
+                if(wallHP[r][c] <= 0) grid[r][c] = 0; 
+            }
+        }
+
+        function drawEnvironment(camX, camY) {
+            ctx.fillRect(0, 0, W, H);
+            ctx.save(); ctx.translate(-camX*0.1, -camY*0.1); 
+
+            if (game.dimension === 'gulag') {
+                ctx.fillStyle = '#0a140a'; ctx.fillRect(-1000, -1000, 5000, 5000);
+                ctx.fillStyle = 'rgba(0, 255, 0, 0.05)';
+                for(let i=0; i<100; i++) {
+                    ctx.beginPath(); ctx.arc((i*99)%MAP_W, (i*88)%MAP_H, (i*33)%150+50, 0, Math.PI*2); ctx.fill();
+                }
+            } else {
+                ctx.fillStyle = '#00000a'; ctx.fillRect(-1000, -1000, 5000, 5000);
+                
+                if(player.isRonin && !player.inVehicle) {
+                    ctx.fillStyle = '#300'; ctx.fillRect(-2000, -2000, MAP_W*4, MAP_H*4);
+                    ctx.fillStyle = '#fff'; ctx.shadowBlur = 50; ctx.shadowColor = '#fff';
+                    ctx.beginPath(); ctx.arc(W/2 + camX*0.1, H/2 + camY*0.1, 400, 0, Math.PI*2); ctx.fill();
+                    ctx.shadowBlur = 0;
+                } else {
+                    ctx.globalCompositeOperation = 'screen';
+                    let g1 = ctx.createRadialGradient(MAP_W*0.8, MAP_H*0.2, 0, MAP_W*0.8, MAP_H*0.2, 1500);
+                    g1.addColorStop(0, 'rgba(100, 0, 200, 0.6)'); g1.addColorStop(1, 'transparent');
+                    ctx.fillStyle = g1; ctx.fillRect(-1000, -1000, 5000, 5000);
+
+                    let g2 = ctx.createRadialGradient(MAP_W*0.2, MAP_H*0.8, 0, MAP_W*0.2, MAP_H*0.8, 1200);
+                    g2.addColorStop(0, 'rgba(0, 200, 255, 0.4)'); g2.addColorStop(1, 'transparent');
+                    ctx.fillStyle = g2; ctx.fillRect(-1000, -1000, 5000, 5000);
+
+                    ctx.fillStyle = '#fff';
+                    for(let i=0; i<500; i++) {
+                        let x = Math.sin(i*123)*2500 + MAP_W/2; let y = Math.cos(i*321)*2500 + MAP_H/2;
+                        let s = (Math.sin(Date.now()*0.002 + i) + 1.5); 
+                        ctx.fillRect(x, y, s, s);
+                    }
+                    ctx.globalCompositeOperation = 'source-over';
+                }
+            }
+            ctx.restore();
+        }
+
+        // =========================================================
+        // 3. GAME CONTROLLER
+        // =========================================================
+        const game = {
+            wave: 1, zombiesToSpawn: 10, state: 'playing', timer: 0, nukeTimer: 0, nukeActive: false,
+            dimension: 'overworld', savedZombies: [],
+
+            update() {
+                if (this.dimension === 'overworld') {
+                    if (this.state === 'playing') {
+                        if (this.zombiesToSpawn > 0 && Math.random() < 0.03 + (this.wave*0.005)) {
+                            let type = Math.random() > 0.8 ? 'aa' : 'normal';
+                            zombies.push(new Zombie(1 + this.wave*0.2, this.wave*0.1, type));
+                            this.zombiesToSpawn--;
+                        }
+                        if (this.zombiesToSpawn === 0 && zombies.length === 0) {
+                            this.state = 'intermission'; this.timer = 300; 
+                        }
+                    } else if (this.state === 'intermission') {
+                        this.timer--;
+                        if(this.timer <= 0) {
+                            this.wave++; this.zombiesToSpawn = 10 + this.wave*6; this.state = 'playing';
+                        }
+                    }
+
+                    if(this.nukeActive) {
+                        this.nukeTimer -= 1/60; 
+                        document.getElementById('nuke-timer').innerText = Math.ceil(this.nukeTimer);
+                        if(this.nukeTimer <= 0) this.detonateNuke();
+                    }
+
+                    if (player.isRonin && !player.inVehicle) {
+                        if(Math.random() < 0.2) {
+                            sakuraLeaves.push({
+                                x: (player.x - W/2) + Math.random()*W*1.5, y: (player.y - H/2) - 50,
+                                vx: -2 - Math.random()*2, vy: 2 + Math.random()*3, size: Math.random()*4 + 3, angle: Math.random()*Math.PI, rotSpeed: (Math.random()-0.5)*0.2
+                            });
+                        }
+                    }
+                } else if (this.dimension === 'gulag') {
+                    if (zombies.length === 0 && this.state === 'gulag_fight') this.returnFromGulag();
+                }
+            },
+
+            sendToGulag() {
+                this.dimension = 'gulag'; this.state = 'gulag_fight';
+                this.savedZombies = zombies; zombies = []; bullets = []; hammers = []; grid = gulagGrid;
+                
+                if(player.inVehicle) player.toggleVehicle();
+                player.isRonin = false; player.mode = 'combat'; player.hammerActive = false;
+                player.x = MAP_W / 2; player.y = MAP_H / 2;
+                
+                document.getElementById('inventory').style.opacity = '0.2';
+                document.getElementById('gulag-warning').style.display = 'block';
+                setTimeout(() => document.getElementById('gulag-warning').style.display = 'none', 4000);
+                
+                screenFlash = { alpha: 1, color: '#00ff00' }; screenShake = 30;
+                zombies.push(new BossZombie(MAP_W/2, MAP_H/4));
+            },
+
+            returnFromGulag() {
+                this.dimension = 'overworld'; this.state = 'playing';
+                zombies = this.savedZombies; grid = overworldGrid;
+                
+                player.x = MAP_W / 2; player.y = MAP_H / 2; player.hp = player.maxHp; 
+                document.getElementById('inventory').style.opacity = '1';
+                screenFlash = { alpha: 1, color: '#ffffff' }; screenShake = 30;
+            },
+
+            callAirstrike() {
+                if (player.cds.airstrike > 0 || player.inVehicle || this.dimension !== 'overworld') return;
+                player.cds.airstrike = player.maxCds.airstrike;
+                airstrikes.push(new Airstrike(player.x, player.y));
+            },
+            startNuke() {
+                if(this.nukeActive || player.cds.nuke > 0 || this.dimension !== 'overworld') return;
+                player.cds.nuke = player.maxCds.nuke;
+                this.nukeActive = true; this.nukeTimer = 60;
+                document.getElementById('nuke-alert').style.display = 'block';
+            },
+            detonateNuke() {
+                document.getElementById('nuke-alert').style.display = 'none';
+                this.nukeActive = false;
+                score += zombies.length * 50;
+                
+                let cX = Math.floor(MAP_COLS/2);
+                let cY = Math.floor(MAP_ROWS/2);
+                for(let r=0; r<MAP_ROWS; r++) {
+                    for(let c=0; c<MAP_COLS; c++) {
+                        if (Math.hypot(c - cX, r - cY) < 10) { 
+                            if(grid[r] && grid[r][c] !== 4 && grid[r][c] !== 5) {
+                                grid[r][c] = 6; wallHP[r][c] = 0;
+                            }
+                        }
+                    }
+                }
+                for(let i=0; i<300; i++) {
+                    let pColor = ['#ff3300', '#ffaa00', '#333333', '#111111'][Math.floor(Math.random()*4)];
+                    particles.push(new Particle(MAP_W/2 + (Math.random()-0.5)*800, MAP_H/2 + (Math.random()-0.5)*800, pColor, 25, 0.002));
+                }
+                zombies = []; screenShake = 100; nukeFlashAlpha = 1; 
+            }
+        };
+
+        // =========================================================
+        // 4. KLASSEN
+        // =========================================================
+        class Hammer {
+            constructor(x, y, angle) {
+                this.x = x; this.y = y; this.vx = Math.cos(angle) * 25; this.vy = Math.sin(angle) * 25;
+                this.state = 'outward'; this.timer = 20; this.angle = 0; this.active = true;
+            }
+            update() {
+                this.angle += 0.5; 
+                if (this.state === 'outward') {
+                    this.x += this.vx; this.y += this.vy; this.timer--;
+                    if (this.timer <= 0) this.state = 'returning';
+                } else {
+                    let dx = player.x - this.x, dy = player.y - this.y;
+                    let dist = Math.hypot(dx, dy);
+                    if (dist < 40) { player.hammerActive = false; this.active = false; screenShake = 5; } 
+                    else { let speed = 30; this.x += (dx/dist) * speed; this.y += (dy/dist) * speed; }
+                }
+                
+                zombies.forEach(z => {
+                    if (Math.hypot(z.x - this.x, z.y - this.y) < 60) {
+                        z.hp -= 20; particles.push(new Particle(z.x, z.y, '#0ff', 5, 0.1)); 
+                        if(z.hp <= 0) score += 10;
+                    }
+                });
+                
+                let hitW = checkWallCollisionObj(this.x, this.y, 30);
+                if (hitW && hitW.val !== 0 && hitW.val !== 4 && hitW.val !== 5 && hitW.val !== 6) hitWall(hitW.r, hitW.c, {attackCD:0}, 100);
+                if(Math.random() < 0.3) particles.push(new Particle(this.x, this.y, '#00ffff', 2, 0.1));
+            }
+            draw(ctx) {
+                ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
+                ctx.shadowBlur = 15; ctx.shadowColor = '#0ff';
+                ctx.fillStyle = '#666'; ctx.fillRect(-15, -10, 30, 20); 
+                ctx.fillStyle = '#8b4513'; ctx.fillRect(-5, 10, 10, 20); 
+                ctx.strokeStyle = '#0ff'; ctx.lineWidth = 2; ctx.strokeRect(-15, -10, 30, 20);
+                ctx.shadowBlur = 0; ctx.restore();
+            }
+        }
+
+        class SakuraTree {
+            constructor(x, y) { this.x = x; this.y = y; this.life = 300; }
+            update() {
+                this.life--;
+                if(Math.random() < 0.1) {
+                    sakuraLeaves.push({
+                        x: this.x + (Math.random()-0.5)*100, y: this.y - 80 + (Math.random()-0.5)*50,
+                        vx: -1 - Math.random(), vy: 1 + Math.random()*2, size: Math.random()*3+2, angle: Math.random()*Math.PI, rotSpeed: (Math.random()-0.5)*0.2
+                    });
+                }
+            }
+            draw(ctx) {
+                ctx.save(); ctx.translate(this.x, this.y);
+                ctx.globalAlpha = Math.max(0, Math.min(1, this.life / 50)); 
+                ctx.fillStyle = '#4a2f1d'; ctx.fillRect(-5, -60, 10, 60); 
+                ctx.beginPath(); ctx.moveTo(0,-40); ctx.lineTo(-20,-70); ctx.lineWidth=4; ctx.strokeStyle='#4a2f1d'; ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0,-30); ctx.lineTo(25,-60); ctx.stroke();
+                ctx.fillStyle = 'rgba(255, 183, 197, 0.9)'; 
+                ctx.beginPath(); ctx.arc(-20,-70,25,0,Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(25,-60,30,0,Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(0,-80,35,0,Math.PI*2); ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        class Airstrike {
+            constructor(targetX, targetY) {
+                this.targetX = targetX; this.targetY = targetY; this.timer = 0; this.active = true;
+                this.jets = [{ x: targetX - 1500, y: targetY + 1500, offset: {x: -150, y: 150} }, { x: targetX - 1500, y: targetY + 1500, offset: {x: 150, y: -150} }];
+                this.angle = -Math.PI/4; this.speed = 45;
+            }
+            update() {
+                this.timer++;
+                this.jets.forEach(jet => { jet.x += Math.cos(this.angle)*this.speed; jet.y += Math.sin(this.angle)*this.speed; });
+                if (this.timer > 20 && this.timer < 40) {
+                    screenShake = 25;
+                    let dropX = this.targetX + (Math.random()-0.5)*800; let dropY = this.targetY + (Math.random()-0.5)*800;
+                    for(let i=0; i<15; i++) particles.push(new Particle(dropX, dropY, '#ff3300', 12, 0.04)); 
+                    zombies.forEach(z => { if(Math.hypot(z.x - dropX, z.y - dropY) < 250) { z.hp -= 100; if(z.hp<=0) particles.push(new Particle(z.x, z.y, '#33cc33', 5, 0.1)); } });
+                    let c = Math.floor(dropX/TS), r = Math.floor(dropY/TS);
+                    for(let rr=r-2; rr<=r+2; rr++) for(let cc=c-2; cc<=c+2; cc++) if(grid[rr] && (grid[rr][cc]===2 || grid[rr][cc]===3)) { grid[rr][cc]=0; wallHP[rr][cc]=0; }
+                }
+                if(this.timer > 80) this.active = false;
+            }
+            draw(ctx) {
+                ctx.fillStyle = '#222';
+                this.jets.forEach(jet => {
+                    ctx.save(); ctx.translate(jet.x + jet.offset.x, jet.y + jet.offset.y); ctx.rotate(this.angle);
+                    ctx.shadowBlur = 30; ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                    ctx.fillRect(-40, -10, 80, 20); ctx.fillRect(-20, -50, 30, 100); ctx.fillRect(-40, -30, 15, 60);
+                    ctx.shadowBlur = 0; ctx.restore();
+                });
+            }
+        }
+
+        class Bomb {
+            constructor(x, y) { this.x = x; this.y = y; this.scale = 2.0; this.active = true; }
+            update() { this.scale -= 0.05; if(this.scale <= 1.0) { this.active = false; this.explode(); } }
+            explode() {
+                screenShake = 30;
+                for(let i=0; i<30; i++) particles.push(new Particle(this.x, this.y, '#ff3300', 10, 0.03)); 
+                zombies.forEach(z => { if(Math.hypot(z.x - this.x, z.y - this.y) < 250) z.hp -= 100; });
+                let c = Math.floor(this.x/TS), r = Math.floor(this.y/TS);
+                for(let rr=r-2; rr<=r+2; rr++) for(let cc=c-2; cc<=c+2; cc++) if(grid[rr] && (grid[rr][cc]===2 || grid[rr][cc]===3)) { grid[rr][cc]=0; wallHP[rr][cc]=0; }
+            }
+            draw(ctx) { ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(this.x, this.y, 8*this.scale, 0, Math.PI*2); ctx.fill(); }
+        }
+
+        class KatanaSlash {
+            constructor(x, y, angle, isKnife = false) {
+                this.x = x + Math.cos(angle)* (isKnife ? 25 : 40); 
+                this.y = y + Math.sin(angle)* (isKnife ? 25 : 40);
+                this.angle = angle; this.life = 15; this.active = true;
+                this.isKnife = isKnife;
+                
+                let range = isKnife ? 50 : 120;
+                let damage = isKnife ? 20 : 40;
+                
+                screenShake = isKnife ? 3 : 8;
+                zombies.forEach(z => {
+                    if(Math.hypot(z.x - this.x, z.y - this.y) < range) {
+                        z.hp -= damage; 
+                        if(z.hp <= 0) { 
+                            score += 15; 
+                            for(let i=0; i<8; i++) particles.push(new Particle(z.x, z.y, '#ff0000', 8, 0.05)); 
+                            if(!this.isKnife) sakuraTrees.push(new SakuraTree(z.x, z.y));
+                        }
+                    }
+                });
+                if(!isKnife) {
+                    let hitW = checkWallCollisionObj(this.x, this.y, 60);
+                    if (hitW && (hitW.val === 2 || hitW.val === 3)) hitWall(hitW.r, hitW.c, {attackCD:0}, 50);
+                }
+            }
+            update() { this.life--; if(this.life <= 0) this.active = false; }
+            draw(ctx) {
+                ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = this.life * (this.isKnife ? 0.5 : 1); ctx.lineCap = 'round';
+                ctx.shadowBlur = 10; ctx.shadowColor = this.isKnife ? '#0ff' : '#f00';
+                ctx.beginPath(); ctx.arc(0, 0, this.isKnife ? 30 : 80, -1.0, 1.0); ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        class Particle {
+            constructor(x, y, color, speed, lifeDecay) {
+                this.x = x; this.y = y; this.color = color;
+                let a = Math.random() * Math.PI*2; let s = Math.random() * speed;
+                this.vx = Math.cos(a)*s; this.vy = Math.sin(a)*s;
+                this.life = 1; this.decay = lifeDecay; this.size = Math.random()*4 + 2;
+            }
+            update() { this.x+=this.vx; this.y+=this.vy; this.life-=this.decay; }
+            draw(ctx) { ctx.globalAlpha = Math.max(0, this.life); ctx.fillStyle = this.color; ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI*2); ctx.fill(); ctx.globalAlpha=1; }
+        }
+
+        class Tank {
+            constructor(x, y) { this.type = 'tank'; this.x = x; this.y = y; this.angle = 0; this.radius = 35; this.shootCD = 0; }
+            update() {
+                if (this.shootCD > 0) this.shootCD--;
+                if (player.inVehicle && player.currentVehicle === this) {
+                    this.angle = Math.atan2(mouse.worldY - this.y, mouse.worldX - this.x);
+                    let vx = 0, vy = 0, speed = 8; 
+                    if (keys['KeyW']) vy -= speed; if (keys['KeyS']) vy += speed;
+                    if (keys['KeyA']) vx -= speed; if (keys['KeyD']) vx += speed;
+
+                    if (vx !== 0 && vy !== 0) { let len = Math.hypot(vx, vy); vx = (vx/len) * speed; vy = (vy/len) * speed; }
+                    
+                    this.x += vx; 
+                    let hitX = checkWallCollisionObj(this.x, this.y, this.radius);
+                    if (hitX) { if(hitX.val === 2 || hitX.val === 3) hitWall(hitX.r, hitX.c, {attackCD:0}, 100); else this.x -= vx; }
+                    this.y += vy;
+                    let hitY = checkWallCollisionObj(this.x, this.y, this.radius);
+                    if (hitY) { if(hitY.val === 2 || hitY.val === 3) hitWall(hitY.r, hitY.c, {attackCD:0}, 100); else this.y -= vy; }
+
+                    this.x = Math.max(this.radius, Math.min(this.x, MAP_W - this.radius));
+                    this.y = Math.max(this.radius, Math.min(this.y, MAP_H - this.radius));
+
+                    zombies.forEach(z => {
+                        if (z.hp > 0 && Math.hypot(z.x - this.x, z.y - this.y) < this.radius + z.radius) {
+                            z.hp = 0; score += 15; screenShake = 5;
+                            for(let i=0; i<15; i++) particles.push(new Particle(z.x, z.y, '#ff0000', 6, 0.05));
+                        }
+                    });
+
+                    if (mouse.down && this.shootCD <= 0) {
+                        bullets.push(new TankShell(this.x, this.y, this.angle));
+                        this.shootCD = 30; screenShake = 15;
+                        particles.push(new Particle(this.x + Math.cos(this.angle)*50, this.y + Math.sin(this.angle)*50, '#ffaa00', 10, 0.1));
+                    }
+                    player.x = this.x; player.y = this.y;
+                }
+            }
+            draw(ctx) {
+                ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
+                ctx.fillStyle = '#111'; ctx.fillRect(-35, -35, 70, 15); ctx.fillRect(-35, 20, 70, 15);
+                ctx.fillStyle = '#2d5a27'; ctx.fillRect(-30, -25, 60, 50); ctx.strokeStyle = '#1e3d1a'; ctx.lineWidth = 4; ctx.strokeRect(-30, -25, 60, 50);
+                ctx.fillStyle = '#222'; ctx.fillRect(0, -8, 55, 16);
+                ctx.fillStyle = '#3a7332'; ctx.beginPath(); ctx.arc(0, 0, 20, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        class Jet {
+            constructor(x, y) { this.type = 'jet'; this.x = x; this.y = y; this.angle = -Math.PI/2; this.radius = 40; this.shootCD = 0; }
+            update() {
+                if (this.shootCD > 0) this.shootCD--;
+                if (player.inVehicle && player.currentVehicle === this) {
+                    let speed = keys['KeyW'] ? 22 : 12; 
+                    if (keys['KeyA']) this.angle -= 0.08;
+                    if (keys['KeyD']) this.angle += 0.08;
+                    
+                    this.x += Math.cos(this.angle) * speed;
+                    this.y += Math.sin(this.angle) * speed;
+
+                    if ((mouse.down || keys['Space']) && this.shootCD <= 0) {
+                        bullets.push(new Bomb(this.x, this.y));
+                        this.shootCD = 15;
+                    }
+                    
+                    if(keys['KeyW']) particles.push(new Particle(this.x - Math.cos(this.angle)*40, this.y - Math.sin(this.angle)*40, '#0ff', 2, 0.1));
+                    player.x = this.x; player.y = this.y;
+                }
+            }
+            draw(ctx) {
+                ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
+                ctx.shadowBlur = 20; ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.fillStyle = '#667';
+                ctx.beginPath(); ctx.moveTo(40, 0); ctx.lineTo(-20, 30); ctx.lineTo(-30, 30); ctx.lineTo(-20, 10); ctx.lineTo(-40, 15); ctx.lineTo(-40, -15); ctx.lineTo(-20, -10); ctx.lineTo(-30, -30); ctx.lineTo(-20, -30); ctx.closePath(); ctx.fill();
+                ctx.fillStyle = '#00aaff'; ctx.beginPath(); ctx.ellipse(10, 0, 15, 5, 0, 0, Math.PI*2); ctx.fill();
+                ctx.shadowBlur = 0; ctx.restore();
+            }
+        }
+
+        class Player {
+            constructor() {
+                this.x = MAP_W/2; this.y = MAP_H/2 + 100; this.radius = 16;
+                this.speed = 5; this.angle = 0; this.hp = 100; this.maxHp = 100;
+                this.mode = 'combat'; this.shootCD = 0; this.buildCD = 0;
+                this.cds = { rocket: 0, airstrike: 0, heal: 0, nuke: 0 };
+                this.maxCds = { rocket: 300, airstrike: 1200, heal: 600, nuke: 3600 }; 
+                this.isRonin = false; this.inVehicle = false; this.currentVehicle = null;
+                this.hammerActive = false;
+            }
+
+            toggleVehicle() {
+                if (this.inVehicle) {
+                    this.inVehicle = false; this.currentVehicle = null; this.x -= 60; 
+                } else {
+                    for(let v of vehicles) {
+                        if (Math.hypot(this.x - v.x, this.y - v.y) < 90) {
+                            this.inVehicle = true; this.currentVehicle = v; this.mode = 'combat'; this.isRonin = false;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            toggleRonin() {
+                if(this.inVehicle || game.dimension === 'gulag') return;
+                this.isRonin = !this.isRonin; this.mode = 'combat'; 
+                document.getElementById('slot-katana').classList.toggle('active', this.isRonin);
+                document.getElementById('slot-combat').classList.toggle('active', !this.isRonin && this.mode === 'combat');
+                this.speed = this.isRonin ? 8 : 5;
+            }
+
+            toggleMode() {
+                if(this.isRonin || this.inVehicle || game.dimension === 'gulag') return;
+                this.mode = this.mode === 'combat' ? 'build' : 'combat';
+                document.getElementById('slot-combat').classList.toggle('active', this.mode === 'combat');
+                document.getElementById('slot-build').classList.toggle('active', this.mode === 'build');
+            }
+
+            useRocket() { if(this.cds.rocket <= 0 && !this.isRonin && !this.inVehicle && game.dimension === 'overworld') { bullets.push(new Rocket(this.x, this.y, this.angle)); this.cds.rocket = this.maxCds.rocket; screenShake = 10; } }
+            useHeal() { if(this.cds.heal <= 0 && this.hp < this.maxHp && !this.inVehicle && game.dimension === 'overworld') { this.hp = Math.min(this.maxHp, this.hp + 50); for(let i=0; i<30; i++) particles.push(new Particle(this.x, this.y, '#00ff00', 3, 0.02)); this.cds.heal = this.maxCds.heal; } }
+
+            update() {
+                if (this.shootCD > 0) this.shootCD--;
+                if (this.buildCD > 0) this.buildCD--;
+                for(let s in this.cds) {
+                    if(this.cds[s] > 0) {
+                        this.cds[s]--;
+                        document.getElementById(`cd-${s}`).style.height = (this.cds[s] / this.maxCds[s] * 100) + '%';
+                    }
+                }
+
+                let nearVeh = vehicles.some(v => Math.hypot(this.x - v.x, this.y - v.y) < 90);
+                document.getElementById('vehicle-alert').style.display = (!this.inVehicle && nearVeh && game.dimension === 'overworld') ? 'block' : 'none';
+
+                if (this.x < 0 || this.x > MAP_W || this.y < 0 || this.y > MAP_H) {
+                    if (game.dimension === 'overworld') { game.sendToGulag(); return; } 
+                    else { this.hp = 0; } 
+                }
+
+                if(this.inVehicle) return;
+
+                this.angle = Math.atan2(mouse.worldY - this.y, mouse.worldX - this.x);
+                let vx = 0, vy = 0;
+                if (keys['KeyW']) vy -= this.speed; if (keys['KeyS']) vy += this.speed;
+                if (keys['KeyA']) vx -= this.speed; if (keys['KeyD']) vx += this.speed;
+
+                if (vx !== 0 && vy !== 0) { let len = Math.hypot(vx, vy); vx = (vx/len) * this.speed; vy = (vy/len) * this.speed; }
+
+                this.x += vx; if(checkWallCollision(this.x, this.y, this.radius)) this.x -= vx;
+                this.y += vy; if(checkWallCollision(this.x, this.y, this.radius)) this.y -= vy;
+
+                // MJOLNIR Wurf
+                if (mouse.rightDown && this.mode === 'combat' && !this.isRonin && !this.hammerActive && game.dimension === 'overworld') {
+                    hammers.push(new Hammer(this.x, this.y, this.angle));
+                    this.hammerActive = true;
+                }
+
+                if (mouse.down) {
+                    if (game.dimension === 'gulag') {
+                        if(this.shootCD <= 0) { bullets.push(new KatanaSlash(this.x, this.y, this.angle, true)); this.shootCD = 15; }
+                    } else {
+                        if (this.mode === 'combat' && this.shootCD <= 0) {
+                            if (this.isRonin) { bullets.push(new KatanaSlash(this.x, this.y, this.angle)); this.shootCD = 20; } 
+                            else { bullets.push(new Bullet(this.x, this.y, this.angle)); this.shootCD = 8; particles.push(new Particle(this.x + Math.cos(this.angle)*25, this.y + Math.sin(this.angle)*25, '#ffff00', 5, 0.1)); }
+                        } else if (this.mode === 'build' && this.buildCD <= 0) { placeWall(); this.buildCD = 15; }
+                    }
+                }
+            }
+
+            draw(ctx) {
+                if(this.inVehicle) return; 
+
+                ctx.fillStyle = '#f00'; ctx.fillRect(this.x - 20, this.y - 30, 40, 5);
+                ctx.fillStyle = '#0f0'; ctx.fillRect(this.x - 20, this.y - 30, 40 * (this.hp/this.maxHp), 5);
+
+                ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
+                ctx.fillStyle = game.dimension === 'gulag' ? '#ff6600' : '#0066ff'; 
+                ctx.beginPath(); ctx.arc(0, 0, this.radius, 0, Math.PI*2); ctx.fill();
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+
+                if(game.dimension === 'gulag') {
+                    ctx.fillStyle = '#aaa'; ctx.fillRect(10, 5, 15, 3);
+                    ctx.fillStyle = '#555'; ctx.fillRect(8, 2, 5, 9);
+                } else if(this.isRonin) {
+                    ctx.fillStyle = '#d2b48c'; ctx.beginPath(); ctx.ellipse(0, 0, 22, 22, 0, 0, Math.PI*2); ctx.fill();
+                    ctx.strokeStyle = '#8b4513'; ctx.lineWidth = 2; ctx.stroke();
+                    ctx.fillStyle = '#111'; ctx.fillRect(10, 5, 20, 4);
+                } else {
+                    if (this.mode === 'combat') { ctx.fillStyle = '#777'; ctx.fillRect(10, 5, 25, 5); } 
+                    else { ctx.fillStyle = '#eee'; ctx.fillRect(12, -8, 15, 12); }
+                }
+                ctx.restore();
+            }
+        }
+
+        class Zombie {
+            constructor(hpMult, speedBonus, type='normal') {
+                let attempts = 0; let safeSpawn = false;
+                while(attempts < 50) {
+                    this.x = player.x + (Math.random()-0.5)*W*1.5; 
+                    this.y = player.y + (Math.random()-0.5)*H*1.5; 
+                    if(!checkWallCollision(this.x, this.y, 15) && Math.hypot(player.x-this.x, player.y-this.y) > 400) {
+                        safeSpawn = true; break;
+                    }
+                    attempts++;
+                }
+                if (!safeSpawn) { this.x = MAP_W/2; this.y = MAP_H/2; } 
+
+                this.type = type; this.radius = 16; this.speed = (1 + Math.random()) + speedBonus; 
+                this.maxHp = 3 * hpMult; this.hp = this.maxHp; this.attackCD = 0;
+                if(this.type === 'aa') { this.speed *= 0.7; this.maxHp *= 1.5; this.hp = this.maxHp; } 
+            }
+            update() {
+                if(this.attackCD > 0) this.attackCD--;
+                let dx = player.x - this.x, dy = player.y - this.y;
+                let angle = Math.atan2(dy, dx);
+                let dist = Math.hypot(dx, dy);
+
+                if (this.type === 'aa' && dist < 600) {
+                    if (this.attackCD <= 0) { bullets.push(new AABullet(this.x, this.y, angle)); this.attackCD = 60; }
+                    this.x += Math.cos(angle) * (this.speed*0.5); this.y += Math.sin(angle) * (this.speed*0.5);
+                    return; 
+                }
+
+                let vx = Math.cos(angle) * this.speed, vy = Math.sin(angle) * this.speed;
+                let hitX = checkWallCollisionObj(this.x + vx*10, this.y, this.radius);
+                let hitY = checkWallCollisionObj(this.x, this.y + vy*10, this.radius);
+                
+                let attacking = false;
+                if(hitX && (hitX.val === 2 || hitX.val === 3)) { hitWall(hitX.r, hitX.c, this, 5); attacking = true; }
+                else { this.x += vx; if(checkWallCollision(this.x, this.y, this.radius)) this.x -= vx; }
+                
+                if(hitY && (hitY.val === 2 || hitY.val === 3)) { hitWall(hitY.r, hitY.c, this, 5); attacking = true; }
+                else { this.y += vy; if(checkWallCollision(this.x, this.y, this.radius)) this.y -= vy; }
+
+                if (!attacking && (!player.inVehicle || (player.inVehicle && player.currentVehicle.type==='tank')) && dist < this.radius + player.radius) {
+                    player.hp -= 0.5; screenShake = 2;
+                }
+            }
+            draw(ctx) {
+                ctx.fillStyle = '#f00'; ctx.fillRect(this.x - 15, this.y - 25, 30, 4);
+                ctx.fillStyle = '#0f0'; ctx.fillRect(this.x - 15, this.y - 25, 30 * (this.hp/this.maxHp), 4);
+
+                let angle = Math.atan2(player.y - this.y, player.x - this.x);
+                ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(angle);
+                
+                if (this.type === 'normal') {
+                    ctx.fillStyle = '#33cc33'; ctx.beginPath(); ctx.arc(0, 0, this.radius, 0, Math.PI*2); ctx.fill();
+                    ctx.strokeStyle = '#1f7a1f'; ctx.lineWidth = 2; ctx.stroke();
+                    ctx.fillStyle = '#999'; ctx.fillRect(10, 8, 20, 3);
+                } else if (this.type === 'aa') {
+                    ctx.fillStyle = '#8a2be2'; ctx.beginPath(); ctx.arc(0, 0, this.radius+4, 0, Math.PI*2); ctx.fill(); 
+                    ctx.strokeStyle = '#4b0082'; ctx.lineWidth = 2; ctx.stroke();
+                    ctx.fillStyle = '#0ff'; ctx.beginPath(); ctx.arc(10, 0, 6, 0, Math.PI*2); ctx.fill(); 
+                }
+                ctx.restore();
+            }
+        }
+
+        class BossZombie extends Zombie {
+            constructor(x, y) {
+                super(1, 0, 'boss');
+                this.x = x; this.y = y; this.radius = 40; this.speed = 2.5; 
+                this.maxHp = 500; this.hp = 500; this.attackCD = 0;
+            }
+            update() {
+                let dx = player.x - this.x, dy = player.y - this.y;
+                let angle = Math.atan2(dy, dx);
+                this.x += Math.cos(angle) * this.speed;
+                this.y += Math.sin(angle) * this.speed;
+                if (Math.hypot(dx, dy) < this.radius + player.radius) { player.hp -= 1.5; screenShake = 5; }
+            }
+            draw(ctx) {
+                ctx.fillStyle = '#f00'; ctx.fillRect(this.x - 40, this.y - 50, 80, 8);
+                ctx.fillStyle = '#0f0'; ctx.fillRect(this.x - 40, this.y - 50, 80 * (this.hp/this.maxHp), 8);
+
+                let angle = Math.atan2(player.y - this.y, player.x - this.x);
+                ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(angle);
+                
+                ctx.fillStyle = '#114411'; ctx.beginPath(); ctx.arc(0, 0, this.radius, 0, Math.PI*2); ctx.fill();
+                ctx.strokeStyle = '#00ff00'; ctx.lineWidth = 4; ctx.stroke();
+                ctx.fillStyle = '#ff0000'; ctx.beginPath(); ctx.arc(20, 10, 8, 0, Math.PI*2); ctx.arc(20, -10, 8, 0, Math.PI*2); ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        class Bullet {
+            constructor(x, y, angle) {
+                this.x = x + Math.cos(angle)*25; this.y = y + Math.sin(angle)*25;
+                this.vx = Math.cos(angle) * 18; this.vy = Math.sin(angle) * 18;
+                this.life = 100; this.active = true; this.radius = 4; this.dmg = 1;
+            }
+            update() {
+                this.x += this.vx; this.y += this.vy; this.life--;
+                let hitW = checkWallCollisionObj(this.x, this.y, this.radius);
+                if (hitW && hitW.val !== 0 && hitW.val !== 4 && hitW.val !== 5 && hitW.val !== 6) { 
+                    this.active = false; 
+                    for(let i=0; i<3; i++) particles.push(new Particle(this.x, this.y, '#fff', 2, 0.1)); 
+                    if(hitW.val === 3) hitWall(hitW.r, hitW.c, {attackCD:0}, 5); 
+                }
+                for(let z of zombies) {
+                    if(Math.hypot(z.x - this.x, z.y - this.y) < z.radius) {
+                        z.hp -= this.dmg; this.active = false;
+                        for(let i=0; i<5; i++) particles.push(new Particle(this.x, this.y, z.type==='aa'?'#8a2be2':'#33cc33', 3, 0.1));
+                    }
+                }
+            }
+            draw(ctx) { ctx.fillStyle = '#0ff'; ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur=10; ctx.shadowColor='#0ff'; ctx.shadowBlur=0;}
+        }
+
+        class AABullet extends Bullet {
+            constructor(x, y, angle) { super(x, y, angle); this.vx = Math.cos(angle) * 8; this.vy = Math.sin(angle) * 8; this.radius = 8; }
+            update() {
+                this.x += this.vx; this.y += this.vy; this.life--;
+                if(this.life <= 0) this.active = false;
+                if (Math.hypot(player.x - this.x, player.y - this.y) < player.radius + this.radius) {
+                    player.hp -= 15; screenShake = 10; this.active = false;
+                    for(let i=0; i<10; i++) particles.push(new Particle(this.x, this.y, '#0ff', 4, 0.1));
+                }
+                particles.push(new Particle(this.x, this.y, '#8a2be2', 1, 0.1)); 
+            }
+            draw(ctx) { ctx.fillStyle = '#8a2be2'; ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur=15; ctx.shadowColor='#0ff'; ctx.shadowBlur=0;}
+        }
+
+        class TankShell extends Bullet {
+            constructor(x, y, angle) { super(x, y, angle); this.vx = Math.cos(angle) * 22; this.vy = Math.sin(angle) * 22; this.radius = 8; this.dmg = 50; }
+            update() {
+                this.x += this.vx; this.y += this.vy; this.life--;
+                zombies.forEach(z => { if(Math.hypot(z.x - this.x, z.y - this.y) < z.radius + 15) { z.hp -= this.dmg; particles.push(new Particle(this.x, this.y, '#33cc33', 5, 0.1)); } });
+                let hitW = checkWallCollisionObj(this.x, this.y, this.radius);
+                if (hitW && hitW.val !== 0 && hitW.val !== 4 && hitW.val !== 5 && hitW.val !== 6) { hitWall(hitW.r, hitW.c, {attackCD:0}, 100); this.active = false; this.explode(); }
+                if(!this.active || this.life <= 0) this.explode();
+            }
+            explode() { screenShake = 25; for(let i=0; i<20; i++) particles.push(new Particle(this.x, this.y, '#ff3300', 10, 0.05)); }
+            draw(ctx) { ctx.fillStyle = '#ffaa00'; ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2); ctx.fill(); }
+        }
+
+        class Rocket extends Bullet {
+            constructor(x, y, angle) { super(x, y, angle); this.vx = Math.cos(angle) * 10; this.vy = Math.sin(angle) * 10; this.radius = 8; this.life = 150; }
+            update() {
+                this.x += this.vx; this.y += this.vy; this.life--;
+                let hitW = checkWallCollisionObj(this.x, this.y, this.radius);
+                if (hitW && hitW.val !== 0 && hitW.val !== 4 && hitW.val !== 5 && hitW.val !== 6) { hitWall(hitW.r, hitW.c, {attackCD:0}, 100); this.active = false; }
+                for(let z of zombies) if(Math.hypot(z.x - this.x, z.y - this.y) < z.radius + 10) this.active = false; 
+                particles.push(new Particle(this.x, this.y, '#ff6600', 1, 0.05)); 
+                if(!this.active || this.life <= 0) this.explode();
+            }
+            explode() {
+                screenShake = 20; for(let i=0; i<30; i++) particles.push(new Particle(this.x, this.y, '#ff3300', 8, 0.02)); 
+                zombies.forEach(z => { if(Math.hypot(z.x - this.x, z.y - this.y) < 180) z.hp -= 15; });
+            }
+            draw(ctx) { ctx.fillStyle = '#f00'; ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2); ctx.fill(); }
+        }
+
+        // =========================================================
+        // 5. GLOBAL INITIALIZATION & EVENTS
+        // =========================================================
+        const player = new Player();
+        vehicles.push(new Tank(MAP_W/2, MAP_H/2));
+        vehicles.push(new Jet(42 * TS, 10 * TS));
+
+        window.addEventListener('keydown', e => {
+            if(e.code === 'Space') e.preventDefault(); 
+            keys[e.code] = true;
+            if(player.hp > 0 && game.dimension === 'overworld') {
+                if (e.code === 'KeyQ') player.toggleVehicle();
+                if (!player.inVehicle) {
+                    if (e.code === 'KeyG') player.toggleMode();
+                    if (player.mode === 'build' && e.code === 'KeyF') editWall();
+                    if (player.mode === 'combat') {
+                        if (e.code === 'KeyT') player.useRocket();
+                        if (e.code === 'KeyX') game.callAirstrike(); 
+                        if (e.code === 'KeyH') player.useHeal();
+                        if (e.code === 'KeyE') player.toggleRonin(); 
+                        if (e.code === 'KeyK') game.startNuke();
+                    }
+                }
+            }
+        });
+        window.addEventListener('keyup', e => keys[e.code] = false);
+        window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+        window.addEventListener('mousedown', e => { 
+            if(e.button === 0) mouse.down = true; 
+            if(e.button === 2) mouse.rightDown = true; 
+        });
+        window.addEventListener('mouseup', e => { 
+            if(e.button === 0) mouse.down = false; 
+            if(e.button === 2) mouse.rightDown = false;
+        });
+        window.addEventListener('mouseleave', e => { mouse.down = false; mouse.rightDown = false; });
+
+        // =========================================================
+        // 6. RENDER LOOP
+        // =========================================================
+        function loop() {
+            try {
+                if(player.hp <= 0) {
+                    ctx.setTransform(1,0,0,1,0,0);
+                    ctx.fillStyle = 'rgba(255,0,0,0.1)'; ctx.fillRect(0,0,W,H);
+                    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; 
+                    ctx.font = '100px Teko'; ctx.fillText("GAME OVER", W/2, H/2);
+                    ctx.font = '40px Teko'; ctx.fillText("CLICK ANYWHERE TO RESTART", W/2, H/2 + 60);
+                    
+                    if (mouse.down) { mouse.down = false; resetGame(); }
+                    requestAnimationFrame(loop);
+                    return;
+                }
+
+                game.update(); player.update();
+                
+                if (game.dimension === 'overworld') {
+                    vehicles.forEach(v => v.update());
+                    airstrikes.forEach(a => a.update()); airstrikes = airstrikes.filter(a => a.active);
+                    hammers.forEach(h => h.update()); hammers = hammers.filter(h => h.active);
+                }
+                
+                bullets.forEach(b => b.update()); bullets = bullets.filter(b => b.active && b.life > 0);
+                zombies.forEach(z => z.update()); 
+                
+                let oldZLen = zombies.length;
+                zombies = zombies.filter(z => z.hp > 0);
+                if(zombies.length < oldZLen && game.dimension === 'overworld') {
+                    score += (oldZLen - zombies.length) * 10;
+                    document.getElementById('score-val').innerText = score;
+                }
+
+                particles.forEach(p => p.update()); particles = particles.filter(p => p.life > 0);
+                sakuraLeaves.forEach(s => { s.x += s.vx; s.y += s.vy; s.angle += s.rotSpeed; });
+                sakuraLeaves = sakuraLeaves.filter(s => s.y < player.y + H/2 + 100 && player.isRonin && !player.inVehicle && game.dimension === 'overworld');
+                sakuraTrees.forEach(t => t.update()); sakuraTrees = sakuraTrees.filter(t => t.life > 0);
+
+                if(screenShake > 0) screenShake *= 0.9;
+                if(screenShake < 0.5) screenShake = 0;
+                
+                mouse.worldX = mouse.x + (player.x - W/2); mouse.worldY = mouse.y + (player.y - H/2);
+                let camX = player.x - W/2 + (Math.random()-0.5)*screenShake;
+                let camY = player.y - H/2 + (Math.random()-0.5)*screenShake;
+
+                drawEnvironment(camX, camY);
+
+                ctx.save();
+                ctx.translate(-camX, -camY);
+
+                if (game.dimension === 'overworld') {
+                    ctx.strokeStyle = 'rgba(0, 255, 255, 0.1)'; ctx.lineWidth = 1;
+                    for(let i=0; i<=MAP_W; i+=TS) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,MAP_H); ctx.stroke(); }
+                    for(let j=0; j<=MAP_H; j+=TS) { ctx.beginPath(); ctx.moveTo(0,j); ctx.lineTo(MAP_W,j); ctx.stroke(); }
+                    
+                    ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 10; ctx.strokeRect(0, 0, MAP_W, MAP_H);
+                    ctx.fillStyle = 'rgba(255,0,0,0.2)'; ctx.fillRect(-2000, -2000, MAP_W + 4000, 2000); ctx.fillRect(-2000, MAP_H, MAP_W + 4000, 2000); ctx.fillRect(-2000, 0, 2000, MAP_H); ctx.fillRect(MAP_W, 0, 2000, MAP_H); 
+                } else {
+                    ctx.strokeStyle = '#00ff00'; ctx.lineWidth = 5; ctx.strokeRect(0, 0, MAP_W, MAP_H);
+                }
+
+                for(let r=0; r<MAP_ROWS; r++) {
+                    for(let c=0; c<MAP_COLS; c++) {
+                        if (grid[r][c] === 1) { 
+                            ctx.fillStyle = '#111'; ctx.fillRect(c*TS, r*TS, TS, TS);
+                            ctx.strokeStyle = '#00ffcc'; ctx.lineWidth = 2; ctx.strokeRect(c*TS+5, r*TS+5, TS-10, TS-10);
+                            ctx.fillStyle = 'rgba(0, 255, 204, 0.2)'; ctx.fillRect(c*TS+15, r*TS+15, TS-30, TS-30);
+                        } else if (grid[r][c] === 2) { 
+                            ctx.fillStyle = `rgba(0, 200, 255, ${wallHP[r][c]/100 * 0.5})`; ctx.fillRect(c*TS, r*TS, TS, TS);
+                            ctx.strokeStyle = '#00ccff'; ctx.lineWidth = 3; ctx.strokeRect(c*TS, r*TS, TS, TS);
+                            ctx.beginPath(); ctx.moveTo(c*TS, r*TS); ctx.lineTo(c*TS+TS, r*TS+TS); ctx.stroke();
+                        } else if (grid[r][c] === 3) {
+                            ctx.fillStyle = '#ffaa00'; ctx.fillRect(c*TS+10, r*TS+10, TS-20, TS-20);
+                            ctx.strokeStyle = '#cc6600'; ctx.lineWidth = 2; ctx.strokeRect(c*TS+10, r*TS+10, TS-20, TS-20);
+                        } else if (grid[r][c] === 4) {
+                            ctx.fillStyle = '#222'; ctx.fillRect(c*TS, r*TS, TS, TS);
+                            ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.setLineDash([10, 10]);
+                            if(c === 41) { ctx.beginPath(); ctx.moveTo(c*TS, r*TS); ctx.lineTo(c*TS, r*TS+TS); ctx.stroke(); }
+                            ctx.setLineDash([]);
+                        } else if (grid[r][c] === 5) { 
+                            ctx.fillStyle = '#2b1d14'; ctx.fillRect(c*TS, r*TS, TS, TS);
+                            ctx.strokeStyle = '#1a110c'; ctx.lineWidth = 2; ctx.strokeRect(c*TS, r*TS, TS, TS);
+                        } else if (grid[r][c] === 6) {
+                            ctx.fillStyle = '#1a0a00'; ctx.fillRect(c*TS, r*TS, TS, TS);
+                            if(Math.random() < 0.02) particles.push(new Particle(c*TS+Math.random()*TS, r*TS+Math.random()*TS, '#ff3300', 1, 0.1));
+                        }
+                    }
+                }
+
+                if (player.mode === 'build' && !player.inVehicle && !player.isRonin && game.dimension === 'overworld') {
+                    let hC = Math.floor(mouse.worldX / TS), hR = Math.floor(mouse.worldY / TS);
+                    if (hC >= 0 && hC < MAP_COLS && hR >= 0 && hR < MAP_ROWS) {
+                        ctx.globalAlpha = 0.5;
+                        ctx.fillStyle = (grid[hR][hC] === 0 || grid[hR][hC] === 4 || grid[hR][hC] === 6) ? '#00ff00' : '#ff0000';
+                        ctx.fillRect(hC*TS, hR*TS, TS, TS); ctx.globalAlpha = 1;
+                    }
+                }
+
+                sakuraTrees.forEach(t => t.draw(ctx));
+                bullets.forEach(b => b.draw(ctx));
+                if (game.dimension === 'overworld') {
+                    vehicles.forEach(v => v.draw(ctx)); 
+                    hammers.forEach(h => h.draw(ctx));
+                }
+                zombies.forEach(z => z.draw(ctx));
+                particles.forEach(p => p.draw(ctx));
+                
+                sakuraLeaves.forEach(s => {
+                    ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.angle);
+                    ctx.fillStyle = '#ffb7c5'; ctx.beginPath(); ctx.ellipse(0, 0, s.size, s.size/2, 0, 0, Math.PI*2); ctx.fill();
+                    ctx.restore();
+                });
+
+                if (game.dimension === 'overworld') airstrikes.forEach(a => a.draw(ctx));
+                player.draw(ctx); 
+
+                ctx.restore();
+
+                if(screenFlash.alpha > 0) {
+                    ctx.fillStyle = `rgba(255, 255, 255, ${screenFlash.alpha})`; ctx.fillRect(0, 0, W, H); screenFlash.alpha -= 0.02; 
+                }
+                if(nukeFlashAlpha > 0) {
+                    ctx.fillStyle = `rgba(255, 255, 255, ${nukeFlashAlpha})`; ctx.fillRect(0, 0, W, H); nukeFlashAlpha -= 0.01; 
+                }
+
+                document.getElementById('hp-val').innerText = Math.floor(player.hp);
+                if(game.dimension === 'overworld') {
+                    if(game.state==='playing') {
+                        document.getElementById('wave-display').innerHTML = `WAVE <span id="wave-val">${game.wave}</span><br><span style="font-size:1.5rem; color:#fff;">Zombies: ${game.zombiesToSpawn + zombies.length}</span>`;
+                    } else {
+                        document.getElementById('wave-display').innerHTML = `WAVE CLEARED!<br><span style="font-size:1.5rem; color:#fff;">Next wave in ${Math.ceil(game.timer/60)}s...</span>`;
+                    }
+                } else {
+                    document.getElementById('wave-display').innerHTML = `GULAG<br><span style="font-size:1.5rem; color:#f00;">KILL THE BOSS!</span>`;
+                }
+
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(mouse.x, mouse.y, 10, 0, Math.PI*2); ctx.stroke();
+                ctx.fillStyle = (player.isRonin || player.inVehicle || game.dimension === 'gulag') ? '#f00' : '#0ff'; ctx.beginPath(); ctx.arc(mouse.x, mouse.y, 3, 0, Math.PI*2); ctx.fill();
+
+            } catch (err) {
+                // FAIL-SAFE RED SCREEN
+                ctx.setTransform(1,0,0,1,0,0);
+                ctx.fillStyle = '#ff0000'; ctx.fillRect(0, 0, W, H);
+                ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.font = '20px Arial';
+                ctx.fillText("CRASH DETECTED: " + err.message, 50, 50);
+            }
+            requestAnimationFrame(loop);
+        }
+
+        function resetGame() {
+            game.dimension = 'overworld'; game.state = 'playing'; game.wave = 1;
+            game.zombiesToSpawn = 10; game.timer = 0; game.nukeActive = false;
+            
+            score = 0; zombies = []; bullets = []; particles = [];
+            sakuraLeaves = []; sakuraTrees = []; airstrikes = []; hammers = [];
+            nukeFlashAlpha = 0; 
+            
+            overworldGrid = Array.from({length: MAP_ROWS}, () => Array(MAP_COLS).fill(0));
+            overworldWallHP = Array.from({length: MAP_ROWS}, () => Array(MAP_COLS).fill(0));
+            grid = overworldGrid; wallHP = overworldWallHP;
+            
+            generateSciFiCity();
+            
+            vehicles = [];
+            vehicles.push(new Tank(MAP_W/2, MAP_H/2));
+            vehicles.push(new Jet(42 * TS, 10 * TS)); 
+            
+            player.hp = player.maxHp;
+            player.x = MAP_W/2; player.y = MAP_H/2 + 100;
+            player.inVehicle = false; player.currentVehicle = null;
+            player.isRonin = false; player.mode = 'combat'; player.hammerActive = false;
+            
+            for(let s in player.cds) player.cds[s] = 0;
+            document.querySelectorAll('.cooldown-overlay').forEach(el => el.style.height = '0%');
+            document.getElementById('inventory').style.opacity = '1';
+            document.getElementById('gulag-warning').style.display = 'none';
+            document.getElementById('nuke-alert').style.display = 'none';
+            document.getElementById('slot-katana').classList.remove('active');
+            document.getElementById('slot-combat').classList.add('active');
+            document.getElementById('slot-build').classList.remove('active');
+        }
+
+        // START!
+        resetGame();
+        loop();
+    </script>
+</body>
+</html>
